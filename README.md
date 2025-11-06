@@ -6,6 +6,23 @@
 
 ---
 
+## Tagging Convenstions
+
+| Key           | Example Value                                | Purpose                                      |
+| ------------- | -------------------------------------------- | -------------------------------------------- |
+| `Project`     | `CCI-Lite`                                   | Groups all resources for the Lite pipeline.  |
+| `Environment` | `Production` *(or `Dev`, `Test`)*            | Distinguishes deployments.                   |
+| `Tenant`      | `demo-tenant`                                | Enables cost/usage segmentation per tenant.  |
+| `Owner`       | `Conversant`                                 | Accountability for billing and audit.        |
+| `Component`   | `S3-Input` / `Lambda-ResultHandler` / `Glue` | Identifies pipeline stage.                   |
+| `Region`      | `eu-central-1`                               | For multi-region tracking.                   |
+| `KMSKey`      | `alias/cci-lite-master-key`                  | Links encrypted resources to the master key. |
+| `CostCenter`  | `CCI`                                        | Optional, for AWS cost allocation reports.   |
+| `Version`     | `v1.3`                                       | Ties back to this build reference.           |
+
+
+---
+
 ## 0) Prerequisites & Naming
 
 * **Region**: `eu-central-1` for core. Bedrock calls in `us-east-1` if required by model.

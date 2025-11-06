@@ -233,22 +233,15 @@ SNS → Create topic `TranscribeJobStatusTopic` (encrypted with KMS). Copy the T
 
 ---
 
-## 6) EventBridge — Rules
-
-* **S3ObjectCreatedToJobInit**: Source **S3**, event type **Object Created**, bucket = input bucket. Target = `cci-lite-job-init`. Filter key prefix `/calls/` in Lambda code.
-* **TranscribeCompletedToResultHandler**: Source **Transcribe**, detail filter `TranscriptionJobStatus = COMPLETED`. Target = `cci-lite-result-handler`. Add a second rule for `FAILED` to a notification Lambda or DLQ if desired.
-
----
-
-## 7) SQS (Optional) — Analysis Buffer
+## 6) SQS (Optional) — Analysis Buffer
 
 Create `cci-lite-analysis-queue` with KMS encryption. Used if you expect high concurrency spikes; otherwise, keep analysis in `result-handler`.
 
 ---
 
-## 8) Lambda Functions
+## 7) Lambda Functions
 
-### 8.1 Shared Environment Variables
+### 7.1 Shared Environment Variables
 
 ```
 INPUT_BUCKET=cci-lite-input-<accountid>-eu-central-1
@@ -265,21 +258,21 @@ LOG_LEVEL=INFO
 
 Enable X‑Ray; set log retention 30 days. Reserve concurrency caps: **50** total; analyzer **10** if used.
 
-### 8.2 `cci-lite-job-init` — Start Transcribe with PII Redaction
+### 7.2 `cci-lite-job-init` — Start Transcribe with PII Redaction
 
 * Trigger: EventBridge S3 rule (failover to direct S3 trigger if you also add one)
 * Timeout 2 min, Memory 1024 MB
 
 **Key behaviour**: Validate `/calls/` prefix → derive `tenant_id` → start job with output to `results/tmp/<tenant_id>/` + SNS notifications.
 
-### 8.3 `cci-lite-result-handler` — Transcript → NLP → Custom QA → Unified JSON
+### 7.3 `cci-lite-result-handler` — Transcript → NLP → Custom QA → Unified JSON
 
 * Trigger: EventBridge (Transcribe COMPLETED)
 * Timeout 10 min, Memory 1536 MB
 
 **Logic**: Fetch tenant QA template from DynamoDB, evaluate via Bedrock, and write unified JSON. Include retry/backoff for transcript availability and a basic JSON repair step if the model output is malformed. Keep deterministic S3 keys based on `job_name` for idempotency.
 
-### 8.4 Production Hardening (merge these into your handler)
+### 7.4 Production Hardening (merge these into your handler)
 
 * **Transcript availability backoff**: After `COMPLETED`, loop-list the `results/tmp/<tenant_id>/` prefix up to ~45 s with a small delay until the JSON appears. Fail with a clear error if not found.
 * **JSON repair**: If Bedrock returns non-JSON, strip code fences, trim trailing commas, ensure balanced braces, then retry JSON parse. If still failing, write a `summary_raw` field and mark the call for review.
@@ -289,7 +282,7 @@ Enable X‑Ray; set log retention 30 days. Reserve concurrency caps: **50** tota
 
 ---
 
-## 9) CloudWatch — Logs, Metrics, Alarms
+## 8) CloudWatch — Logs, Metrics, Alarms
 
 * Errors ≥ 1 per function → notify.
 * Transcribe `FAILED` path → dedicated rule to notify or DLQ.
@@ -298,7 +291,7 @@ Enable X‑Ray; set log retention 30 days. Reserve concurrency caps: **50** tota
 
 ---
 
-## 10) Glue — Database & Crawler
+## 9) Glue — Database & Crawler
 
 * Database: `cci-lite-db`.
 * Crawler: name `cci-lite-results-crawler`, source = Results bucket, role `cci-lite-glue-role`, schedule Daily, output to `cci-lite-db`.
@@ -306,7 +299,7 @@ Enable X‑Ray; set log retention 30 days. Reserve concurrency caps: **50** tota
 
 ---
 
-## 11) Athena — Workgroups & Queries
+## 10) Athena — Workgroups & Queries
 
 Workgroups: `cci-lite-shared`, `tenant-<id>` with enforced result locations in the staging bucket.
 
@@ -351,7 +344,7 @@ ORDER BY fail_rate DESC, calls DESC;
 
 ---
 
-## 12) QuickSight — Datasets, RLS, Dashboards
+## 11) QuickSight — Datasets, RLS, Dashboards
 
 1. Create Athena dataset from `cci-lite-db.results`.
 2. Create a second dataset using the **Explode QA criteria** query as a custom SQL dataset.
@@ -366,20 +359,20 @@ ORDER BY fail_rate DESC, calls DESC;
 
 ---
 
-## 13) Budgets & Concurrency Guards
+## 12) Budgets & Concurrency Guards
 
 * Budgets for Transcribe, Bedrock, Lambda.
 * Reserve concurrency caps. Optionally per‑function caps to prioritise the result‑handler.
 
 ---
 
-## 14) CloudTrail — Data Events
+## 13) CloudTrail — Data Events
 
 Trail with Data events for all three buckets, plus management events. Encrypt with KMS.
 
 ---
 
-## 15) Security Hardening
+## 14) Security Hardening
 
 * S3 bucket policies that require `s3:ExistingObjectTag/tenant_id` to match caller’s principal tag.
 * Write object tag `tenant_id` on all results (already done in code).
@@ -388,7 +381,7 @@ Trail with Data events for all three buckets, plus management events. Encrypt wi
 
 ---
 
-## 16) End‑to‑End Validation
+## 15) End‑to‑End Validation
 
 1. Upload `.wav` to `s3://cci-lite-input-.../demo-tenant/calls/test.wav`.
 2. EventBridge → `job-init` starts Transcribe; SNS wired.
@@ -403,7 +396,7 @@ Trail with Data events for all three buckets, plus management events. Encrypt wi
 
 ---
 
-## 17) Troubleshooting Focus for v1.2
+## 16) Troubleshooting Focus for v1.2
 
 * **No QA in JSON**: Check DynamoDB item path (`TENANT#<id>` + `QA_TEMPLATE#v1`), env var `QA_TEMPLATE_KEY`, and Bedrock output parsing.
 * **Model output not JSON**: Add stricter instruction and a one‑line repair step (e.g., wrap with `{"qa_evaluation": ...}`); log the raw text to debug.
@@ -413,7 +406,7 @@ Trail with Data events for all three buckets, plus management events. Encrypt wi
 
 ---
 
-## 18) Optional Enhancements
+## 17) Optional Enhancements
 
 * **Versioned QA**: Store multiple templates (`QA_TEMPLATE#v2`) and include version used in the output (`qa_template_version`).
 * **Agent/Queue metadata**: Join with external CRM/CCaaS webhook data and add to the JSON for richer reporting.
@@ -422,7 +415,7 @@ Trail with Data events for all three buckets, plus management events. Encrypt wi
 
 ---
 
-## 19) Example Unified JSON (v1.2)
+## 18) Example Unified JSON (v1.2)
 
 ```json
 {
@@ -462,7 +455,7 @@ Trail with Data events for all three buckets, plus management events. Encrypt wi
 
 ---
 
-## 20) Operator Runbook (Daily)
+## 19) Operator Runbook (Daily)
 
 * Check CloudWatch alarms.
 * Review Budgets.

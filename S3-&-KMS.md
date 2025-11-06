@@ -1,4 +1,4 @@
-# ✅ CCI Lite v1.3 — S3 & KMS Foundation Setup (Completed)
+# ✅ CCI Lite v1.3 — Phase 2 : S3 & KMS (Updated)
 
 ### Date
 
@@ -6,7 +6,7 @@
 
 ### Region
 
-`eu-central-1` (core) — Bedrock calls use `eu-central-1` if model requires
+`eu-central-1`
 
 ### Environment
 
@@ -16,131 +16,80 @@ Production
 
 ## 1. Purpose
 
-This phase establishes the **secure storage and event backbone** for the CCI Lite pipeline.
-All subsequent components (Lambda, Transcribe, Glue, Athena) depend on these encrypted, versioned S3 buckets and the customer-managed KMS key.
+This phase establishes secure S3 storage for CCI Lite and configures encryption using a single customer-managed KMS key (`alias/cci-lite-master-key`). Updates below align all buckets to the same CMK and correct the KMS policy principals for Transcribe and EventBridge integrations.
 
 ---
 
-## 2. Components Implemented
+## 2. Buckets Configuration
 
-### 🔑 KMS — `alias/cci-lite-master-key`
+Three buckets are used for pipeline input, results, and Athena query staging. Each bucket is now explicitly set to use the CMK `alias/cci-lite-master-key` for encryption.
 
-**ARN:**
-`arn:aws:kms:eu-central-1:591338347562:key/79d23f7f-9420-4398-a848-93876d0250e5`
+| Bucket Name                                        | Purpose                                     | Encryption                      | Notes                                            |
+| -------------------------------------------------- | ------------------------------------------- | ------------------------------- | ------------------------------------------------ |
+| `cci-lite-input-<accountid>-eu-central-1`          | Raw audio uploads (trigger for job init)    | SSE-KMS (`cci-lite-master-key`) | Event notifications enabled for `/calls/` prefix |
+| `cci-lite-results-<accountid>-eu-central-1`        | Transcribe + Bedrock processed JSON results | SSE-KMS (`cci-lite-master-key`) | Accessible by Glue, Athena, and QuickSight       |
+| `cci-lite-athena-staging-<accountid>-eu-central-1` | Athena query output + temporary data        | SSE-KMS (`cci-lite-master-key`) | Set as Athena workgroup query results bucket     |
 
-* Created as **symmetric** customer-managed key.
-* Region locked to `eu-central-1`.
-* Rotation: enabled.
-* Used by all S3, Lambda, Glue, and QuickSight resources.
-* Policy includes root + admin + AWS service principals (Lambda, Glue, QuickSight, Transcribe, EventBridge, S3).
-* Tenant guard condition reserved for future isolation enforcement:
+Lifecycle rules remain:
+
+* Input bucket → Retain 1 day
+* Results bucket → Retain 30 days
+* Staging bucket → Retain 7 days
+
+---
+
+## 3. KMS Configuration
+
+**Key Alias:** `alias/cci-lite-master-key`
+**Key ARN:** `arn:aws:kms:eu-central-1:591338347562:key/79d23f7f-9420-4398-a848-93876d0250e5`
+
+### Updated Policy
+
+Revised to remove invalid IAM role principal and replace with correct AWS service principals. This ensures Amazon Transcribe, EventBridge, and CloudWatch Logs can encrypt/decrypt objects as part of pipeline operations.
 
 ```json
 {
   "Version": "2012-10-17",
-  "Id": "cci-lite-master-key-policy-v1.1",
+  "Id": "cci-lite-master-key-policy-updated",
   "Statement": [
     {
-      "Sid": "AllowRootAccountFullAccess",
+      "Sid": "AllowRootFullAccess",
       "Effect": "Allow",
       "Principal": { "AWS": "arn:aws:iam::591338347562:root" },
       "Action": "kms:*",
       "Resource": "*"
     },
     {
-      "Sid": "AllowKeyAdministrators",
+      "Sid": "AllowServiceAccess",
       "Effect": "Allow",
       "Principal": {
-        "AWS": [
-          "arn:aws:iam::591338347562:role/Admin",
-          "arn:aws:iam::591338347562:role/CCIPlatformAdmin"
+        "Service": [
+          "s3.amazonaws.com",
+          "lambda.amazonaws.com",
+          "glue.amazonaws.com",
+          "sns.amazonaws.com",
+          "transcribe.amazonaws.com",
+          "events.amazonaws.com",
+          "logs.eu-central-1.amazonaws.com"
         ]
       },
       "Action": [
-        "kms:Create*",
-        "kms:Describe*",
-        "kms:Enable*",
-        "kms:List*",
-        "kms:Put*",
-        "kms:Update*",
-        "kms:Revoke*",
-        "kms:Disable*",
-        "kms:Get*",
-        "kms:Delete*",
-        "kms:TagResource",
-        "kms:UntagResource",
-        "kms:ScheduleKeyDeletion",
-        "kms:CancelKeyDeletion"
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:ReEncrypt*",
+        "kms:GenerateDataKey*",
+        "kms:DescribeKey"
       ],
       "Resource": "*"
     },
     {
-      "Sid": "AllowCoreServiceRolesToUseKey",
+      "Sid": "AllowCoreRolesToUseKey",
       "Effect": "Allow",
       "Principal": {
         "AWS": [
           "arn:aws:iam::591338347562:role/cci-lite-lambda-role",
           "arn:aws:iam::591338347562:role/cci-lite-glue-role",
-          "arn:aws:iam::591338347562:role/cci-lite-quicksight-role",
-          "arn:aws:iam::591338347562:role/service-role/AmazonTranscribeServiceRole"
-        ]
-      },
-      "Action": [
-        "kms:Encrypt",
-        "kms:Decrypt",
-        "kms:ReEncrypt*",
-        "kms:GenerateDataKey*",
-        "kms:DescribeKey"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "AllowAWSServiceAccess",
-      "Effect": "Allow",
-      "Principal": {
-        "Service": [
-          "lambda.amazonaws.com",
-          "glue.amazonaws.com",
-          "quicksight.amazonaws.com",
-          "events.amazonaws.com",
-          "transcribe.amazonaws.com",
-          "s3.amazonaws.com"
-        ]
-      },
-      "Action": [
-        "kms:Encrypt",
-        "kms:Decrypt",
-        "kms:ReEncrypt*",
-        "kms:GenerateDataKey*",
-        "kms:DescribeKey"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Sid": "TenantScopedEncryptionContext",
-      "Effect": "Allow",
-      "Principal": {
-        "AWS": "arn:aws:iam::591338347562:role/cci-lite-lambda-role"
-      },
-      "Action": [
-        "kms:Encrypt",
-        "kms:Decrypt",
-        "kms:GenerateDataKey"
-      ],
-      "Resource": "*",
-      "Condition": {
-        "StringEquals": {
-          "kms:EncryptionContext:tenant_id": "${aws:PrincipalTag/tenant_id}"
-        }
-      }
-    },
-    {
-      "Sid": "AllowCloudWatchLogsAndEventBridgeAccess",
-      "Effect": "Allow",
-      "Principal": {
-        "Service": [
-          "logs.eu-central-1.amazonaws.com",
-          "events.amazonaws.com"
+          "arn:aws:iam::591338347562:role/cci-lite-quicksight-role"
         ]
       },
       "Action": [
@@ -156,92 +105,37 @@ All subsequent components (Lambda, Transcribe, Glue, Athena) depend on these enc
 }
 ```
 
-* Tag set applied:
+---
 
-  ```
-  Project = CCI-Lite
-  Environment = Production
-  Owner = Conversant
-  Version = v1.3
-  ```
+## 4. Validation Checklist
+
+| Check                                                                       | Result                    |
+| --------------------------------------------------------------------------- | ------------------------- |
+| Buckets exist and accessible                                                | ✅                         |
+| Encryption alias applied to all                                             | ✅ (`cci-lite-master-key`) |
+| Lifecycle rules enforced                                                    | ✅                         |
+| KMS policy valid (no invalid principals)                                    | ✅                         |
+| Service principals added for S3, Lambda, SNS, Transcribe, EventBridge, Logs | ✅                         |
 
 ---
 
-### 🧳 S3 Buckets (Created)
+## 5. Outputs / Notes
 
-| Bucket                                              | Purpose                     | Lifecycle            | Encryption                      | Versioning |
-| --------------------------------------------------- | --------------------------- | -------------------- | ------------------------------- | ---------- |
-| `cci-lite-input-591338347562-eu-central-1`          | Upload call audio           | Delete after 1 day   | SSE-KMS (`cci-lite-master-key`) | Enabled    |
-| `cci-lite-results-591338347562-eu-central-1`        | Store JSON analytics output | Delete after 30 days | SSE-KMS                         | Enabled    |
-| `cci-lite-athena-staging-591338347562-eu-central-1` | Athena query results        | None                 | SSE-KMS                         | Enabled    |
-
-**Global settings:**
-
-* Block all public access
-* ACLs disabled
-* EventBridge notifications enabled on the **input bucket**
-
-**Structure (auto-created by Lambdas and Transcribe):**
-
-```
-s3://cci-lite-input-.../<tenant_id>/calls/
-s3://cci-lite-results-.../<tenant_id>/YYYY/MM/DD/
-```
+* All storage locations now share a single CMK for unified encryption policy.
+* Transcribe and EventBridge can safely encrypt/decrypt intermediate files.
+* Glue, Athena, and QuickSight maintain read-only access through `cci-lite-glue-role` and `cci-lite-quicksight-role`.
+* Policy tested and saved successfully without validation errors.
 
 ---
 
-## 3. Why These Choices
+## 6. Next Phase
 
-| Design Goal              | Implementation Decision                                                    |
-| ------------------------ | -------------------------------------------------------------------------- |
-| Security & Compliance    | SSE-KMS using customer key + restricted policy.                            |
-| Cost & Retention Control | Lifecycle rules enforce short-term storage (1 day input, 30 days results). |
-| Automation & Integration | EventBridge notifications trigger Lambda `cci-lite-job-init`.              |
-| Multi-Tenant Isolation   | Tenant prefixes (`demo-tenant/`) prepare for logical separation.           |
-| Observability            | Versioning supports recovery & audit of S3 object changes.                 |
+Proceed to **Phase 3 — IAM Roles**
+Tasks:
+
+* Create and attach IAM roles for Lambda, Glue, and QuickSight.
+* Ensure each role has KMS decrypt permissions using this same key.
 
 ---
 
-## 4. Replication Guide for New Tenants
-
-When onboarding a new customer or tenant, repeat these **tenant-specific** actions only:
-
-1. **Create prefixes** (automatically done on first upload):
-   `s3://cci-lite-input-.../<tenant_id>/calls/`
-2. **Add tenant config** record to DynamoDB `cci-lite-config`.
-3. **Optionally** enforce tenant guard in KMS policy:
-
-   ```json
-   "Principal": { "AWS": "arn:aws:iam::<account_id>:role/cci-lite-lambda-role" },
-   "Condition": { "StringEquals": { "kms:EncryptionContext:tenant_id": "<tenant_id>" } }
-   ```
-4. Tag the new resources or prefixes:
-
-   ```
-   Tenant = <tenant_id>
-   Project = CCI-Lite
-   Environment = Production
-   Component = S3
-   Region = eu-central-1
-   Version = v1.3
-   ```
-5. Verify EventBridge is still enabled on the input bucket (applies globally).
-
-No new buckets are created per tenant; the design is **multi-tenant, prefix-partitioned**.
-
----
-
-## 5. Next Phase
-
-Proceed to **Step 3 — IAM Roles** creation:
-
-* `cci-lite-lambda-role`
-* `cci-lite-glue-role`
-* `cci-lite-quicksight-role`
-
-Each role will require **KMS decrypt/encrypt access** on
-`arn:aws:kms:eu-central-1:591338347562:key/79d23f7f-9420-4398-a848-93876d0250e5`.
-
----
-
-*End of S3 & KMS Foundation update.*
+*End of updated Phase 2 (S3 & KMS) documentation — aligned with CMK alias and valid service principals.*

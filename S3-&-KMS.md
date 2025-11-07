@@ -50,27 +50,25 @@ Revised to remove invalid IAM role principal and replace with correct AWS servic
 ```json
 {
   "Version": "2012-10-17",
-  "Id": "cci-lite-master-key-policy-updated",
+  "Id": "cci-lite-master-key-policy-final-v1.3",
   "Statement": [
     {
-      "Sid": "AllowRootFullAccess",
+      "Sid": "AllowRootAccountFullAccess",
       "Effect": "Allow",
-      "Principal": { "AWS": "arn:aws:iam::591338347562:root" },
+      "Principal": {
+        "AWS": "arn:aws:iam::591338347562:root"
+      },
       "Action": "kms:*",
       "Resource": "*"
     },
     {
-      "Sid": "AllowServiceAccess",
+      "Sid": "AllowCoreServiceRolesToUseKey",
       "Effect": "Allow",
       "Principal": {
-        "Service": [
-          "s3.amazonaws.com",
-          "lambda.amazonaws.com",
-          "glue.amazonaws.com",
-          "sns.amazonaws.com",
-          "transcribe.amazonaws.com",
-          "events.amazonaws.com",
-          "logs.eu-central-1.amazonaws.com"
+        "AWS": [
+          "arn:aws:iam::591338347562:role/cci-lite-lambda-role",
+          "arn:aws:iam::591338347562:role/cci-lite-quicksight-role",
+          "arn:aws:iam::591338347562:role/cci-lite-glue-role"
         ]
       },
       "Action": [
@@ -83,13 +81,17 @@ Revised to remove invalid IAM role principal and replace with correct AWS servic
       "Resource": "*"
     },
     {
-      "Sid": "AllowCoreRolesToUseKey",
+      "Sid": "AllowAWSServiceIntegrations",
       "Effect": "Allow",
       "Principal": {
-        "AWS": [
-          "arn:aws:iam::591338347562:role/cci-lite-lambda-role",
-          "arn:aws:iam::591338347562:role/cci-lite-glue-role",
-          "arn:aws:iam::591338347562:role/cci-lite-quicksight-role"
+        "Service": [
+          "events.amazonaws.com",
+          "lambda.amazonaws.com",
+          "logs.eu-central-1.amazonaws.com",
+          "glue.amazonaws.com",
+          "s3.amazonaws.com",
+          "sns.amazonaws.com",
+          "transcribe.amazonaws.com"
         ]
       },
       "Action": [
@@ -98,6 +100,19 @@ Revised to remove invalid IAM role principal and replace with correct AWS servic
         "kms:ReEncrypt*",
         "kms:GenerateDataKey*",
         "kms:DescribeKey"
+      ],
+      "Resource": "*"
+    },
+    {
+      "Sid": "AllowSQSServiceAccess",
+      "Effect": "Allow",
+      "Principal": {
+        "Service": "sqs.amazonaws.com"
+      },
+      "Action": [
+        "kms:Encrypt",
+        "kms:Decrypt",
+        "kms:GenerateDataKey*"
       ],
       "Resource": "*"
     }

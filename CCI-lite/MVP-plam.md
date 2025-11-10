@@ -26,7 +26,7 @@ S3 (Audio Upload) → Lambda → Transcribe → SNS → Lambda → Comprehend �
 
 * Region: **eu-central-1**.
 * Services: S3, KMS, IAM, Lambda, SNS, EventBridge, Transcribe, Comprehend, Bedrock, Glue, Athena, QuickSight.
-* Confirm Bedrock model access (Claude 3 Haiku) in **us-east-1**.
+* Confirm Bedrock model access (Claude 3 Haiku) in **eu-central-1**.
 
 ### 1.2 Folder & Documentation Setup
 
